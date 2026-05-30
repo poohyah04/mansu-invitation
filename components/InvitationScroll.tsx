@@ -85,15 +85,9 @@ export default function InvitationScroll() {
         <div className="sticky top-0 h-screen w-full overflow-hidden bg-stone-900">
           
           {/* ================= BACKGROUNDS ================= */}
-          {/* Section 1 Background: Deep Navy with subtle gradient for 130th design */}
-          <motion.div className="absolute inset-0 w-full h-full bg-[#071324] overflow-hidden" style={{ opacity: sec1BgOp, scale: sec1BgScale }}>
-            {/* Subtle decorative curved lines (using pure CSS/SVG) */}
-            <svg className="absolute inset-0 w-full h-full opacity-20 pointer-events-none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-              <path d="M 0,300 C 300,400 700,200 1000,300" stroke="#d4af37" strokeWidth="1" fill="none" />
-              <path d="M 0,700 C 400,600 600,800 1000,700" stroke="#ffffff" strokeWidth="0.5" fill="none" />
-              <path d="M 0,500 C 200,600 800,400 1000,500" stroke="#ffffff" strokeWidth="0.5" fill="none" />
-            </svg>
-            <div className="absolute inset-0 bg-gradient-to-b from-[#071324]/80 via-transparent to-[#071324]" />
+          <motion.div className="absolute inset-0 w-full h-full" style={{ opacity: sec1BgOp, scale: sec1BgScale }}>
+            <img src="/images/church_ext1.jpg" alt="만수교회 전경" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-b from-stone-900/60 via-stone-900/40 to-stone-900/80" />
           </motion.div>
           
           <motion.div className="absolute inset-0 w-full h-full" style={{ opacity: sec2BgOp, scale: sec2BgScale }}>
@@ -133,61 +127,46 @@ export default function InvitationScroll() {
 
           {/* ================= FOREGROUND TEXTS ================= */}
           
-          {/* Section 1: Hero (130th Anniversary Design) */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-30 px-4">
+          {/* Section 1: Hero (Invitation) */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-30 px-6">
             <motion.div 
-              className="text-center mt-0 w-full max-w-4xl flex flex-col items-center"
+              className="text-center mt-10 w-full max-w-4xl"
               style={{ opacity: sec1TextOp, y: sec1TextY }}
             >
-              <div className="flex items-center justify-center gap-3 mb-6">
-                <Star className="w-8 h-8 md:w-10 md:h-10 text-white fill-white" />
-                <span className="text-white text-base md:text-lg tracking-[0.3em] font-light">만수교회</span>
+              <div className="flex flex-col items-center mb-8">
+                <Star className={`w-12 h-12 ${goldColor} fill-[#d4af37] mb-2`} />
+                <span className="text-white text-sm tracking-[0.2em] font-light">만수교회</span>
               </div>
               
-              <div className="flex items-center justify-center gap-4 w-full mb-12 opacity-70">
-                <div className="h-[1px] flex-1 max-w-[60px] bg-[#d4af37]"></div>
-                <span className="text-[#d4af37] text-xs md:text-sm tracking-[0.4em] font-serif uppercase">EST. 1895 — 2026</span>
-                <div className="h-[1px] flex-1 max-w-[60px] bg-[#d4af37]"></div>
+              <div className="mb-6">
+                <span className={`text-xs md:text-sm tracking-[0.4em] ${goldColor} font-medium border-t border-b border-[#d4af37]/50 py-2 px-6 inline-block`}>
+                  INVITATION · 2026
+                </span>
               </div>
 
-              {/* Huge 130 Typography */}
-              <div className="relative flex items-end justify-center mb-10 leading-none">
-                <span className="text-white text-8xl md:text-[180px] font-serif font-light tracking-tighter">1</span>
-                <span className="text-[#d4af37] text-8xl md:text-[180px] font-serif font-light tracking-tighter -ml-2 md:-ml-4">3</span>
-                <span className="text-white text-8xl md:text-[180px] font-serif font-light tracking-tighter -ml-1 md:-ml-2">0</span>
-                <span className="text-white text-2xl md:text-5xl font-serif italic font-light ml-2 mb-2 md:mb-6">th</span>
-                
-                {/* Decorative lines across the numbers */}
-                <div className="absolute top-1/2 left-[-10%] right-[-10%] h-[1px] bg-[#d4af37]/30 transform -rotate-2"></div>
-                <div className="absolute top-[45%] left-[-5%] right-[-5%] h-[1px] bg-white/20 transform rotate-1"></div>
-              </div>
-
-              <h1 className="text-sm md:text-xl font-serif tracking-[0.6em] text-white/90 mb-12 uppercase break-keep">
-                만수교회 창립 130주년
+              <h1 className="text-4xl md:text-7xl font-serif font-bold tracking-tight mb-4 drop-shadow-xl text-white leading-tight">
+                리모델링<br/>
+                <span className={goldColor}>감사 · 봉헌 예배</span>
               </h1>
               
-              <div className="flex flex-col items-center gap-4 mt-4">
-                <h2 className="text-2xl md:text-4xl font-serif text-white leading-snug">
-                  끊기지 않은 은혜, <br className="md:hidden" />
-                  멈추지 않는 <span className="text-[#d4af37]">강물</span>처럼
-                </h2>
-                <p className="text-[10px] md:text-sm text-white/60 tracking-[0.3em] md:tracking-[0.5em] mt-4">
-                  기억하고 · 기뻐하고 · 나아가고 · 새로워집니다
-                </p>
+              <div className="mt-10">
+                <span className="text-sm md:text-lg tracking-[0.2em] text-white/80 font-light border border-white/20 rounded-full px-6 py-2 bg-white/5 backdrop-blur-md">
+                  2026. 10. 04 · SUN
+                </span>
               </div>
 
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center opacity-70">
-                <span className="text-[#d4af37] text-[10px] tracking-widest uppercase mb-2 font-serif">Scroll</span>
+              <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center opacity-70">
+                <span className="text-white/60 text-xs tracking-widest uppercase mb-2">Scroll Down</span>
                 <motion.div 
-                  animate={{ y: [0, 8, 0] }} 
+                  animate={{ y: [0, 10, 0] }} 
                   transition={{ repeat: Infinity, duration: 2 }}
-                  className="w-[1px] h-8 bg-gradient-to-b from-[#d4af37] to-transparent"
+                  className="w-[1px] h-12 bg-gradient-to-b from-white/50 to-transparent"
                 />
               </div>
             </motion.div>
           </div>
 
-          {/* Section 2: Greeting Detail */}
+          {/* Section 2: Greeting */}
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-30 px-6">
             <motion.div 
               className={`text-center p-8 md:p-16 rounded-2xl ${darkNavy} backdrop-blur-xl border ${goldBorder} shadow-2xl max-w-2xl w-full mx-auto`}
@@ -197,18 +176,26 @@ export default function InvitationScroll() {
                 <div className={`w-12 h-[1px] bg-[#d4af37]/50`}></div>
               </div>
               
-              <span className={`text-xs tracking-[0.3em] ${goldColor} mb-8 block uppercase`}>Invitation</span>
+              <span className={`text-xs tracking-[0.3em] ${goldColor} mb-4 block uppercase`}>Slogan</span>
               
-              <p className="text-sm md:text-lg text-white/90 font-light leading-[2.5] break-keep">
+              <h2 className="text-2xl md:text-4xl font-serif text-white leading-snug mb-6">
+                끊기지 않은 은혜,<br/>
+                멈추지 않는 <span className={goldColor}>강물</span>처럼.
+              </h2>
+              
+              <p className="text-xs md:text-sm text-white/50 tracking-[0.1em] mb-10">
+                &gt; 회복되고 · 세워지고 · 세상의 빛과 소금이 되리
+              </p>
+              
+              <div className="w-12 h-[1px] bg-[#d4af37]/20 mx-auto mb-10"></div>
+              
+              <p className="text-sm md:text-base text-white/80 font-light leading-loose break-keep">
                 한 시대가 낳은 새로운 교회,<br/>
-                <span className="font-serif text-[#d4af37] text-lg md:text-xl px-1">130년</span>의 강이 되겠습니다.<br/>
-                <br/>
+                130년의 강이 되겠습니다.<br/>
                 새롭게 단장한 만수교회에서<br/>
                 은혜의 큰 잔치를 함께 나누고자<br/>
                 여러분을 정중히 초대합니다.
               </p>
-              
-              <div className="mt-12 w-12 h-[1px] bg-[#d4af37]/20 mx-auto"></div>
             </motion.div>
           </div>
 
