@@ -5,7 +5,7 @@ export type Cue = {
   text: string;
 };
 
-export type TranscriptSource = "youtube" | "srt" | "vtt" | "plain";
+export type TranscriptSource = "youtube" | "whisper" | "srt" | "vtt" | "plain";
 
 export type Transcript = {
   source: TranscriptSource;

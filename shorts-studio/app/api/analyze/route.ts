@@ -7,7 +7,7 @@ export const maxDuration = 300;
 
 const RequestSchema = z.object({
   transcript: z.object({
-    source: z.enum(["youtube", "srt", "vtt", "plain"]),
+    source: z.enum(["youtube", "whisper", "srt", "vtt", "plain"]),
     language: z.string().nullable(),
     duration: z.number(),
     cues: z
