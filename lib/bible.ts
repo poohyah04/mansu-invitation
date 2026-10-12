@@ -50,9 +50,9 @@ const RAW_BOOKS: [string, string, string[]][] = [
   ["학개", "학", ["학개서"]],
   ["스가랴", "슥", ["스가랴서"]],
   ["말라기", "말", ["말라기서"]],
-  ["마태복음", "마", ["마태"]],
-  ["마가복음", "막", ["마가"]],
-  ["누가복음", "눅", ["누가"]],
+  ["마태복음", "마", []],
+  ["마가복음", "막", []],
+  ["누가복음", "눅", []],
   ["요한복음", "요", []],
   ["사도행전", "행", []],
   ["로마서", "롬", []],
@@ -86,12 +86,16 @@ export const BOOKS: Book[] = RAW_BOOKS.map(([name, abbr, aliases], i) => ({
   testament: i < 39 ? "old" : "new",
 }));
 
+const SHORT_NAMES: Record<string, string[]> = { 마태복음: ["마태"], 마가복음: ["마가"], 누가복음: ["누가"] };
+
 // 별칭 → 책 번호. full: 약어가 아닌 이름인지 (숫자 없이 책 이름만 입력했을 때 구분용)
 const ALIASES: { key: string; book: number; full: boolean }[] = BOOKS.flatMap(
   (b, i) => [
     { key: b.name, book: i, full: true },
     { key: b.abbr, book: i, full: false },
     ...b.aliases.map((a) => ({ key: a, book: i, full: true })),
+    // "누가"처럼 일상 단어와 겹치는 이름은 장 번호가 뒤따를 때만 책으로 본다
+    ...(SHORT_NAMES[b.name] ?? []).map((a) => ({ key: a, book: i, full: false })),
   ],
 ).sort((a, b) => b.key.length - a.key.length);
 
@@ -102,38 +106,146 @@ export type Reference = {
   to?: number;
 };
 
-const REF_TAIL =
-  /^(\d+)(?:장|편|[:.,])?(?:(\d+)절?)?(?:[-~](?:(\d+)[:.])?(\d+)절?)?$/;
+const REF_TAIL = /^(\d+)(?:장|편|[:.])?(?:(\d+)절?)?(?:[-~](?:(\d+)[:.])?(\d+)절?)?$/;
 
-/** "마태복음 5장 5절", "요 3:16-18", "요한복음 5장", "시편 23편" 등을 해석. 해석 못 하면 null. */
+const KO_NUM =
+  /^(?:([일이삼사오육륙칠팔구]?)백)?(?:([이삼사오육륙칠팔구]?)십)?([일이삼사오육륙칠팔구])?$/;
+const KO_DIGIT: Record<string, number> = {
+  일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 륙: 6, 칠: 7, 팔: 8, 구: 9,
+};
+
+function koNumber(s: string): number | null {
+  const m = s.match(KO_NUM);
+  if (!m || !s) return null;
+  const d = (c: string | undefined, dflt: number) => (c ? KO_DIGIT[c] : dflt);
+  const hundreds = s.includes("백") ? d(m[1], 1) : 0;
+  const tens = s.includes("십") ? d(m[2], 1) : 0;
+  return hundreds * 100 + tens * 10 + d(m[3], 0);
+}
+
+/**
+ * 말로 한 참조를 숫자 표기로 바꾼다 (공백 제거된 문자열 기준).
+ * "마태복음오장오절" → "마태복음5장5절", "시편이십삼편" → "시편23편",
+ * "3절부터10절까지" → "3-10절"
+ */
+export function normalizeSpokenNumbers(s: string): string {
+  s = s.replace(/[일이삼사오육륙칠팔구십백]+(?=장|편|절|에서|부터|까지|$)/g, (run) => {
+    // "요일사장"처럼 책 약어 끝 글자가 숫자 글자와 붙은 경우를 위해 가장 긴 유효한 뒷부분만 숫자로 바꾼다
+    for (let i = 0; i < run.length; i++) {
+      const n = koNumber(run.slice(i));
+      if (n) return run.slice(0, i) + n;
+    }
+    return run;
+  });
+  return s
+    .replace(/(\d+)절?(?:에서|부터)(\d+)/g, "$1-$2")
+    .replace(/(\d+)장(?:에서|부터)(\d+)장/g, "$1장")
+    .replace(/까지$/, "")
+    .replace(/[.。!?]+$/, "");
+}
+
+function editDistance(a: string, b: string) {
+  const dp = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[b.length];
+}
+
+/** 음성 인식이 잘못 들은 책 이름("마테복음", "요한 복음")을 가장 가까운 책으로 */
+function fuzzyBook(head: string, strict: boolean): number | null {
+  if (head.length < 3) return null;
+  let best: { book: number; d: number } | null = null;
+  for (const a of ALIASES) {
+    if (!a.full || a.key.length < 3) continue;
+    const d = editDistance(head, a.key);
+    if (!best || d < best.d) best = { book: a.book, d };
+  }
+  const limit = strict ? 1 : head.length >= 5 ? 2 : 1;
+  return best && best.d <= limit ? best.book : null;
+}
+
+function parseTail(book: number, rest: string): Reference | null {
+  const m = rest.match(REF_TAIL);
+  if (!m) return null;
+  const chapter = Number(m[1]);
+  const ref: Reference = { book, chapter };
+  if (m[2]) {
+    ref.from = Number(m[2]);
+    // "5:3-6:2" 같은 장 넘김은 지원하지 않고 시작 장 끝까지 보여준다
+    if (m[4]) ref.to = m[3] && Number(m[3]) !== chapter ? Infinity : Number(m[4]);
+  } else if (m[4]) {
+    // "요한복음 5-6" 처럼 숫자만 범위인 경우는 절 범위로 해석하지 않는다
+    return null;
+  }
+  return ref;
+}
+
+/** "마태복음 5장 5절", "요 3:16-18", "요한복음 5장", "시편 23편", "마태복음 오장 오절" 등을 해석. 해석 못 하면 null. */
 export function parseReference(input: string): Reference | null {
-  const s = input.replace(/\s+/g, "");
+  const s = normalizeSpokenNumbers(input.replace(/\s+/g, ""));
   if (!s) return null;
   for (const a of ALIASES) {
     if (!s.startsWith(a.key)) continue;
     const rest = s.slice(a.key.length);
     if (rest === "") {
       // 약어 한 글자는 검색어일 수 있으므로 전체 이름일 때만 1장으로 이동
-      return a.full ? { book: a.book, chapter: 1 } : null;
+      if (a.full) return { book: a.book, chapter: 1 };
+      continue;
     }
-    const m = rest.match(REF_TAIL);
-    if (!m) continue;
-    const chapter = Number(m[1]);
-    const from = m[2];
-    // "5:3-6:2" 같은 장 넘김은 지원하지 않고 시작 장 끝까지 보여준다
-    const toChapter = m[3] ? Number(m[3]) : undefined;
-    const to = m[4];
-    const ref: Reference = { book: a.book, chapter };
-    if (from) {
-      ref.from = Number(from);
-      if (to) ref.to = toChapter && toChapter !== chapter ? Infinity : Number(to);
-    } else if (to) {
-      // "요한복음 5-6" 처럼 숫자만 범위인 경우는 절 범위로 해석하지 않는다
-      return null;
-    }
-    return ref;
+    const ref = parseTail(a.book, rest);
+    if (ref) return ref;
+  }
+  const m = s.match(/^(\D+?)(\d.*)?$/);
+  if (m) {
+    const book = fuzzyBook(m[1], !m[2]);
+    if (book !== null) return m[2] ? parseTail(book, m[2]) : m[1].length >= 4 ? { book, chapter: 1 } : null;
   }
   return null;
+}
+
+/**
+ * 쉼표·줄바꿈으로 나눈 여러 참조. "요 3:16, 롬 8:28, 시 23편", "요 3:16, 18", "시 23편, 24편".
+ * 하나라도 해석 못 하면 null (단어 검색으로 넘긴다).
+ */
+export function parseReferences(input: string): Reference[] | null {
+  const parts = input.split(/[,;\n、]|그리고/).map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  const refs: Reference[] = [];
+  for (const part of parts) {
+    let ref = parseReference(part);
+    const prev = refs[refs.length - 1];
+    if (!ref && prev) {
+      const p = normalizeSpokenNumbers(part.replace(/\s+/g, ""));
+      const verseOnly = p.match(/^(\d+)절?(?:[-~](\d+)절?)?$/);
+      if (verseOnly && prev.from) {
+        ref = { book: prev.book, chapter: prev.chapter, from: Number(verseOnly[1]) };
+        if (verseOnly[2]) ref.to = Number(verseOnly[2]);
+      } else {
+        ref = parseTail(prev.book, p);
+      }
+    }
+    if (!ref) return null;
+    refs.push(ref);
+  }
+  return refs;
+}
+
+/** 음성 명령에서 "찾아줘", "들어간 구절" 같은 말을 걷어낸다 */
+export function cleanSpokenQuery(text: string): string {
+  return text
+    .trim()
+    .replace(/[.。!?]+$/, "")
+    .replace(/\s*(?:을|를)?\s*(?:찾아\s*(?:줘|주세요|봐)|보여\s*(?:줘|주세요)|검색\s*(?:해\s*(?:줘|주세요))?|열어\s*(?:줘|주세요))$/, "")
+    .replace(/\s*(?:이|가|을|를)?\s*(?:들어간|나오는|있는)\s*(?:구절|말씀|본문)(?:들)?$/, "")
+    .replace(/\s*(?:구절|말씀|본문)$/, "")
+    .trim();
 }
 
 export type Verse = { book: number; chapter: number; verse: number; text: string };
@@ -175,13 +287,15 @@ export function refLabel(v: Pick<Verse, "book" | "chapter" | "verse">, short = f
   return `${short ? b.abbr : b.name} ${v.chapter}:${v.verse}`;
 }
 
-/**
- * 붙여넣기용 텍스트. 같은 장의 연속된 절은 묶어서
- *   마태복음 5:3-5
- *   3 심령이 ...
- * 단일 절은 "본문 (마태복음 5:5)" 형식.
- */
-export function formatVerses(verses: Verse[]): string {
+export type CopyFormat = "basic" | "bulletin" | "slides";
+
+export const COPY_FORMATS: { id: CopyFormat; label: string; hint: string }[] = [
+  { id: "basic", label: "기본", hint: "장절 제목 + 절마다 줄바꿈" },
+  { id: "bulletin", label: "주보용", hint: "본문을 한 문단으로, 끝에 장절" },
+  { id: "slides", label: "자막·PPT용", hint: "한 절씩 따로, 절마다 장절" },
+];
+
+function groupVerses(verses: Verse[]): Verse[][] {
   const sorted = [...verses].sort(
     (a, b) => a.book - b.book || a.chapter - b.chapter || a.verse - b.verse,
   );
@@ -195,11 +309,33 @@ export function formatVerses(verses: Verse[]): string {
       groups.push([v]);
     }
   }
-  return groups
+  return groups;
+}
+
+export function rangeLabel(g: Verse[], short = false) {
+  const b = BOOKS[g[0].book];
+  const last = g[g.length - 1].verse;
+  return `${short ? b.abbr : b.name} ${g[0].chapter}:${g[0].verse}${last !== g[0].verse ? `-${last}` : ""}`;
+}
+
+/**
+ * 붙여넣기용 텍스트. 같은 장의 연속된 절은 한 묶음으로 다룬다.
+ * - 기본: 단일 절은 "본문 (마태복음 5:5)", 여러 절은 "마태복음 5:3-5" 아래 "3 본문" 줄
+ * - 주보용: "본문 본문 … (마태복음 5:3-5)"
+ * - 자막·PPT용: 절마다 "본문\n(마태복음 5:3)", 빈 줄로 구분
+ */
+export function formatVerses(verses: Verse[], format: CopyFormat = "basic"): string {
+  if (format === "slides") {
+    return [...verses]
+      .sort((a, b) => a.book - b.book || a.chapter - b.chapter || a.verse - b.verse)
+      .map((v) => `${v.text}\n(${refLabel(v)})`)
+      .join("\n\n");
+  }
+  return groupVerses(verses)
     .map((g) => {
+      if (format === "bulletin") return `${g.map((v) => v.text).join(" ")} (${rangeLabel(g)})`;
       if (g.length === 1) return `${g[0].text} (${refLabel(g[0])})`;
-      const head = `${BOOKS[g[0].book].name} ${g[0].chapter}:${g[0].verse}-${g[g.length - 1].verse}`;
-      return [head, ...g.map((v) => `${v.verse} ${v.text}`)].join("\n");
+      return [rangeLabel(g), ...g.map((v) => `${v.verse} ${v.text}`)].join("\n");
     })
     .join("\n\n");
 }

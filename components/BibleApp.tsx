@@ -7,31 +7,43 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCopy,
+  CloudOff,
   Download,
+  Mic,
+  MonitorPlay,
   NotebookPen,
   Search,
   Trash2,
   X,
 } from "lucide-react";
+import Presenter from "@/components/bible/Presenter";
+import { useOffline } from "@/components/bible/useOffline";
+import { useSpeech } from "@/components/bible/useSpeech";
 import {
   BOOKS,
   type BibleData,
+  type CopyFormat,
   type Reference,
   type Scope,
   type Verse,
+  COPY_FORMATS,
+  cleanSpokenQuery,
   formatVerses,
-  parseReference,
+  parseReferences,
+  rangeLabel,
   refLabel,
   searchVerses,
   versesFor,
 } from "@/lib/bible";
 
 const MEMO_KEY = "bible-memo";
+const FORMAT_KEY = "bible-copy-format";
 const PAGE_SIZE = 100;
-const EXAMPLES = ["마태복음 5장 5절", "요한복음 3장", "요 3:16-18", "시편 23편", "사랑하는"];
+const EXAMPLES = ["마태복음 5장 5절", "요한복음 3장", "요 3:16, 롬 8:28, 시 23편", "고전 13:4-7", "사랑하는"];
 
 type View =
   | { kind: "ref"; ref: Reference; verses: Verse[] }
+  | { kind: "multi"; sections: { ref: Reference; verses: Verse[] }[]; verses: Verse[] }
   | { kind: "search"; query: string; verses: Verse[] }
   | { kind: "empty"; message: string };
 
@@ -66,7 +78,13 @@ async function copyText(text: string) {
 
 function computeView(data: BibleData, query: string, scope: Scope): View | null {
   if (!query) return null;
-  const ref = parseReference(query);
+  const refs = parseReferences(query);
+  if (refs && refs.length > 1) {
+    const sections = refs.map((ref) => ({ ref, verses: versesFor(data, ref) })).filter((s) => s.verses.length);
+    if (sections.length) return { kind: "multi", sections, verses: sections.flatMap((s) => s.verses) };
+    return { kind: "empty", message: "입력한 본문을 찾을 수 없습니다. 장과 절 번호를 확인해 주세요." };
+  }
+  const ref = refs?.[0];
   if (ref) {
     const verses = versesFor(data, ref);
     if (verses.length) return { kind: "ref", ref, verses };
@@ -116,6 +134,8 @@ export default function BibleApp() {
   const [memo, setMemo] = useState("");
   const [memoOpen, setMemoOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [format, setFormat] = useState<CopyFormat>("basic");
+  const [present, setPresent] = useState<Verse[] | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -138,6 +158,8 @@ export default function BibleApp() {
         setData(d);
         try {
           setMemo(localStorage.getItem(MEMO_KEY) ?? "");
+          const f = localStorage.getItem(FORMAT_KEY);
+          if (COPY_FORMATS.some((c) => c.id === f)) setFormat(f as CopyFormat);
         } catch {}
         // 주소의 ?q= 로 바로 열기
         const q = new URL(window.location.href).searchParams.get("q")?.trim();
@@ -166,6 +188,25 @@ export default function BibleApp() {
     [data, scope],
   );
 
+  const speech = useSpeech({
+    onInterim: setInput,
+    onFinal: (text) => {
+      const q = cleanSpokenQuery(text);
+      setInput(q);
+      run(q);
+      window.scrollTo({ top: 0 });
+    },
+    onError: notify,
+  });
+  const offline = useOffline();
+
+  const chooseFormat = (f: CopyFormat) => {
+    setFormat(f);
+    try {
+      localStorage.setItem(FORMAT_KEY, f);
+    } catch {}
+  };
+
   useEffect(() => {
     if (!focusKey) return;
     document.getElementById(`v-${focusKey}`)?.scrollIntoView({ block: "center" });
@@ -193,12 +234,12 @@ export default function BibleApp() {
     });
 
   const copySelected = async () => {
-    if (await copyText(formatVerses(selectedVerses))) notify(`${selectedVerses.length}절을 복사했습니다`);
+    if (await copyText(formatVerses(selectedVerses, format))) notify(`${selectedVerses.length}절을 복사했습니다`);
     else notify("복사하지 못했습니다");
   };
 
   const addToMemo = () => {
-    const text = formatVerses(selectedVerses);
+    const text = formatVerses(selectedVerses, format);
     saveMemo(memo.trim() ? `${memo.replace(/\s+$/, "")}\n\n${text}\n` : `${text}\n`);
     notify(`${selectedVerses.length}절을 메모장에 넣었습니다`);
     setSelected(new Set());
@@ -213,6 +254,8 @@ export default function BibleApp() {
     URL.revokeObjectURL(a.href);
   };
 
+  const closePresenter = useCallback(() => setPresent(null), []);
+
   const ref = view?.kind === "ref" ? view.ref : null;
   const isWholeChapter = ref && !ref.from;
   const chapterCount = ref && data ? data[ref.book].length : 0;
@@ -225,6 +268,64 @@ export default function BibleApp() {
       ? `${book.name} ${ref.chapter}${unit}`
       : `${book.name} ${ref.chapter}:${verses[0].verse}${verses.length > 1 ? `-${verses[verses.length - 1].verse}` : ""}`;
   }
+
+  const renderRow = (v: Verse) => {
+    const k = keyOf(v);
+    const on = selected.has(k);
+    return (
+      <li key={k} id={`v-${k}`}>
+        <div
+          role="checkbox"
+          aria-checked={on}
+          tabIndex={0}
+          onClick={() => toggle(v)}
+          onKeyDown={(e) => {
+            if (e.key === " " || e.key === "Enter") {
+              e.preventDefault();
+              toggle(v);
+            }
+          }}
+          className={`group flex cursor-pointer gap-3 rounded-lg px-3 py-2 transition-colors ${
+            on
+              ? "bg-amber-100 ring-1 ring-amber-400 dark:bg-amber-900/30 dark:ring-amber-700"
+              : focusKey === k
+                ? "bg-amber-50 dark:bg-stone-900"
+                : "hover:bg-stone-100 dark:hover:bg-stone-900"
+          }`}
+        >
+          <span
+            className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+              on ? "border-amber-700 bg-amber-700 text-white" : "border-stone-300 dark:border-stone-600"
+            }`}
+          >
+            {on && <Check className="h-3 w-3" strokeWidth={3} />}
+          </span>
+          <div className="flex-1 font-serif text-[17px] leading-relaxed">
+            {view?.kind === "search" ? (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    goTo(`${BOOKS[v.book].name} ${v.chapter}장`, k);
+                  }}
+                  title="앞뒤 문맥 보기"
+                  className="mr-2 font-sans text-sm font-medium text-amber-800 hover:underline dark:text-amber-400"
+                >
+                  {refLabel(v, true)}
+                </button>
+                <Highlight text={v.text} terms={terms} />
+              </>
+            ) : (
+              <>
+                <sup className="mr-1.5 font-sans text-xs font-semibold text-amber-800 dark:text-amber-500">{v.verse}</sup>
+                {v.text}
+              </>
+            )}
+          </div>
+        </div>
+      </li>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-800 dark:bg-stone-950 dark:text-stone-200">
@@ -239,6 +340,21 @@ export default function BibleApp() {
               성경 찾기
               <span className="text-xs font-normal text-stone-500">개역한글</span>
             </button>
+            <div className="flex items-center gap-2">
+            {!offline.online ? (
+              <span className="flex items-center gap-1 text-xs text-stone-500" title="인터넷 연결 없음">
+                <CloudOff className="h-3.5 w-3.5" /> 오프라인
+              </span>
+            ) : offline.canInstall && !offline.standalone ? (
+              <button
+                onClick={offline.install}
+                className="flex items-center gap-1 rounded-full px-2 py-1.5 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-stone-800"
+              >
+                <Download className="h-3.5 w-3.5" /> 앱으로 설치
+              </button>
+            ) : offline.ready ? (
+              <span className="hidden text-xs text-stone-500 sm:inline">인터넷 없이도 사용 가능</span>
+            ) : null}
             <button
               onClick={() => setMemoOpen(true)}
               className="relative flex items-center gap-1.5 rounded-full border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-900"
@@ -247,6 +363,7 @@ export default function BibleApp() {
               메모장
               {memo.trim() && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-600" />}
             </button>
+            </div>
           </div>
           <form
             onSubmit={(e) => {
@@ -262,7 +379,7 @@ export default function BibleApp() {
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="마태복음 5장 5절 · 요한복음 5장 · 사랑하는"
+                placeholder={speech.listening ? "듣고 있어요… 예: 요한복음 삼장 십육절" : "마태복음 5장 5절 · 요한복음 5장 · 사랑하는"}
                 className="w-full rounded-xl border border-stone-300 bg-white py-2.5 pl-9 pr-9 text-base outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-600/20 dark:border-stone-700 dark:bg-stone-900"
                 enterKeyHint="search"
                 autoFocus
@@ -281,6 +398,22 @@ export default function BibleApp() {
                 </button>
               )}
             </div>
+            {speech.supported && (
+              <button
+                type="button"
+                aria-label={speech.listening ? "듣기 멈추기" : "말로 찾기"}
+                aria-pressed={speech.listening}
+                disabled={!data}
+                onClick={() => (speech.listening ? speech.stop() : speech.start())}
+                className={`flex w-11 shrink-0 items-center justify-center rounded-xl border transition-colors disabled:opacity-50 ${
+                  speech.listening
+                    ? "animate-pulse border-red-500 bg-red-500 text-white"
+                    : "border-stone-300 bg-white text-amber-800 hover:border-amber-600 dark:border-stone-700 dark:bg-stone-900 dark:text-amber-400"
+                }`}
+              >
+                <Mic className="h-5 w-5" />
+              </button>
+            )}
             <button
               type="submit"
               disabled={!data}
@@ -330,9 +463,26 @@ export default function BibleApp() {
               <li><b>마태복음 5장 5절</b>, <b>마 5:5</b> — 한 구절</li>
               <li><b>요한복음 5장</b>, <b>시편 23편</b> — 장 전체</li>
               <li><b>고전 13:4-7</b> — 여러 구절</li>
+              <li><b>요 3:16, 롬 8:28, 시 23편</b> — 여러 본문 한꺼번에 (쉼표로 구분)</li>
               <li><b>사랑하는</b> — 그 단어가 들어간 모든 구절 (여러 단어는 띄어 쓰면 모두 포함된 구절)</li>
             </ul>
-            <p className="mb-4">구절을 눌러 선택한 뒤 <b>복사</b>하거나 <b>메모장</b>에 모아둘 수 있습니다.</p>
+            {speech.supported && (
+              <p className="mb-4">
+                <Mic className="mr-1 inline h-4 w-4 align-[-3px] text-amber-700" />
+                마이크를 누르고 <b>“요한복음 삼장 십육절”</b>, <b>“사랑이 들어간 구절 찾아줘”</b>처럼 말해도 됩니다.
+              </p>
+            )}
+            <p className="mb-4">
+              구절을 눌러 선택한 뒤 <b>복사</b>하거나 <b>메모장</b>에 모아둘 수 있습니다. 복사 형식은 기본·주보용·자막용 중에 고를 수 있고,{" "}
+              <b>크게 보기</b>를 누르면 한 절씩 화면 가득 띄워 모임에서 함께 볼 수 있습니다.
+            </p>
+            {!offline.standalone && (
+              <p className="mb-4 text-xs">
+                휴대폰 홈 화면에 추가하면 앱처럼 열리고, 한 번 열어 두면 인터넷이 없어도 쓸 수 있습니다.
+                <br />
+                아이폰: Safari 공유 버튼 → 홈 화면에 추가 · 안드로이드: Chrome 메뉴 → 홈 화면에 추가(앱 설치)
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               {EXAMPLES.map((q) => (
                 <button
@@ -353,11 +503,20 @@ export default function BibleApp() {
           <>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h1 className="text-xl font-semibold">
-                {view.kind === "ref" ? title : (
+                {view.kind === "ref" ? title : view.kind === "multi" ? (
+                  <>본문 {view.sections.length}곳 <span className="text-base font-normal text-stone-500">{verses.length.toLocaleString()}절</span></>
+                ) : (
                   <>“{view.query}” <span className="text-base font-normal text-stone-500">{verses.length.toLocaleString()}절</span></>
                 )}
               </h1>
               <div className="flex items-center gap-1 text-sm">
+                <button
+                  onClick={() => setPresent(selectedVerses.length ? selectedVerses : verses)}
+                  title="한 절씩 화면 가득 크게 보기"
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 hover:bg-stone-200 dark:hover:bg-stone-800"
+                >
+                  <MonitorPlay className="h-4 w-4" /> 크게 보기
+                </button>
                 {ref && !isWholeChapter && (
                   <button
                     onClick={() => goTo(`${BOOKS[ref.book].name} ${ref.chapter}장`, `${ref.book}:${ref.chapter}:${ref.from}`)}
@@ -375,65 +534,28 @@ export default function BibleApp() {
               </div>
             </div>
 
-            <ol className="space-y-1">
-              {visible.map((v) => {
-                const k = keyOf(v);
-                const on = selected.has(k);
-                return (
-                  <li key={k} id={`v-${k}`}>
-                    <div
-                      role="checkbox"
-                      aria-checked={on}
-                      tabIndex={0}
-                      onClick={() => toggle(v)}
-                      onKeyDown={(e) => {
-                        if (e.key === " " || e.key === "Enter") {
-                          e.preventDefault();
-                          toggle(v);
-                        }
-                      }}
-                      className={`group flex cursor-pointer gap-3 rounded-lg px-3 py-2 transition-colors ${
-                        on
-                          ? "bg-amber-100 ring-1 ring-amber-400 dark:bg-amber-900/30 dark:ring-amber-700"
-                          : focusKey === k
-                            ? "bg-amber-50 dark:bg-stone-900"
-                            : "hover:bg-stone-100 dark:hover:bg-stone-900"
-                      }`}
-                    >
-                      <span
-                        className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                          on ? "border-amber-700 bg-amber-700 text-white" : "border-stone-300 dark:border-stone-600"
-                        }`}
-                      >
-                        {on && <Check className="h-3 w-3" strokeWidth={3} />}
-                      </span>
-                      <div className="flex-1 font-serif text-[17px] leading-relaxed">
-                        {view.kind === "search" ? (
-                          <>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                goTo(`${BOOKS[v.book].name} ${v.chapter}장`, k);
-                              }}
-                              title="앞뒤 문맥 보기"
-                              className="mr-2 font-sans text-sm font-medium text-amber-800 hover:underline dark:text-amber-400"
-                            >
-                              {refLabel(v, true)}
-                            </button>
-                            <Highlight text={v.text} terms={terms} />
-                          </>
-                        ) : (
-                          <>
-                            <sup className="mr-1.5 font-sans text-xs font-semibold text-amber-800 dark:text-amber-500">{v.verse}</sup>
-                            {v.text}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+            {view.kind === "multi" ? (
+              <div className="space-y-6">
+                {view.sections.map((sec, si) => (
+                  <section key={si}>
+                    <h2 className="mb-1 flex items-baseline justify-between gap-2 border-b border-stone-200 pb-1 font-semibold dark:border-stone-800">
+                      {rangeLabel(sec.verses)}
+                      {sec.ref.from && (
+                        <button
+                          onClick={() => goTo(`${BOOKS[sec.ref.book].name} ${sec.ref.chapter}장`, keyOf(sec.verses[0]))}
+                          className="text-xs font-normal text-amber-800 hover:underline dark:text-amber-400"
+                        >
+                          장 전체
+                        </button>
+                      )}
+                    </h2>
+                    <ol className="space-y-1">{sec.verses.map(renderRow)}</ol>
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <ol className="space-y-1">{visible.map(renderRow)}</ol>
+            )}
 
             {view.kind === "search" && shown < verses.length && (
               <button
@@ -464,7 +586,25 @@ export default function BibleApp() {
 
       {selectedVerses.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 backdrop-blur dark:border-stone-800 dark:bg-stone-900/95">
-          <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-3">
+          <div className="mx-auto flex max-w-3xl items-center gap-1.5 px-4 pt-2.5 text-xs text-stone-500">
+            복사 형식
+            {COPY_FORMATS.map((f) => (
+              <button
+                key={f.id}
+                title={f.hint}
+                aria-pressed={format === f.id}
+                onClick={() => chooseFormat(f.id)}
+                className={`rounded-full border px-2.5 py-1 ${
+                  format === f.id
+                    ? "border-amber-700 bg-amber-700 text-white"
+                    : "border-stone-300 text-stone-600 hover:border-amber-600 dark:border-stone-700 dark:text-stone-300"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
             <span className="mr-auto text-sm"><b>{selectedVerses.length}</b>절 선택</span>
             <button onClick={() => setSelected(new Set())} className="rounded-lg px-3 py-2 text-sm text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800">
               취소
@@ -524,6 +664,8 @@ export default function BibleApp() {
           </aside>
         </div>
       )}
+
+      {present && <Presenter verses={present} onClose={closePresenter} />}
 
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center">

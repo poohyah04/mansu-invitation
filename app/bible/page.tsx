@@ -1,9 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import BibleApp from "@/components/BibleApp";
 
 export const metadata: Metadata = {
   title: "성경 찾기",
   description: "성경 본문 찾기와 단어 검색 (개역한글)",
+  manifest: "/bible/manifest.webmanifest",
+  appleWebApp: { title: "성경 찾기", capable: true, statusBarStyle: "default" },
+  icons: { apple: "/bible/apple-icon.png", icon: "/bible/icon-192.png" },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fafaf9" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c0a09" },
+  ],
 };
 
 export default function BiblePage() {
